@@ -38,7 +38,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ===============================
 
 # Set the input file name (change as needed)
-excel_file = "sample_s.xlsx"
+excel_file = "sample_sp.xlsx"
 
 # Read the Excel file using pandas
 # If the file has multiple sheets, you can specify sheet_name if needed
@@ -608,7 +608,17 @@ elif best_label_name == 'Agglomerative':
     y = y_hc
 else:
     y = y_q_kmeans
-
+# === Cluster assignment comparison table ===
+# Create a DataFrame with peptide names and cluster assignments for each method
+cluster_comparison_df = pd.DataFrame({
+    'Peptide': X,
+    'KMeans': y_kmeans,
+    'Agglomerative': y_hc,
+    'QuantumKMeans': y_q_kmeans
+})
+# Save to CSV
+cluster_comparison_df.to_csv('cluster_assignments_comparison.csv', index=False)
+print('Cluster assignment comparison table saved as cluster_assignments_comparison.csv')
 X = X_main  # Features: PCs explaining 95% variance
 
 # 2. Train/test split (filter classes with only one sample)
@@ -893,7 +903,8 @@ clf.fit(X_train_pca, y_train)
 print('Fin decision Boundary')
 # Asumiendo que X_test tiene 2 características (2D)
 plot_decision_boundary(X_test_pca, y_test, clf)
-print('Fin decision Boundary')
+# Save the quantum SVM PCA decision boundary plot
+save_and_show('pca_quantum_decision_boundary')
 
 
 # %%
@@ -901,5 +912,3 @@ print('Fin decision Boundary')
 K_train = svm_models[selected_kernel]["kernel_matrix"](X_train, num_qubits)
 K_sorted = mddt.sort_K(K_train, Y_train)
 mddt.plot_kernel_matrix(K_sorted, title=selected_kernel)
-
-
