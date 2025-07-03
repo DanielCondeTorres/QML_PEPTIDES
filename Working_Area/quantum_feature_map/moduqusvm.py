@@ -79,7 +79,7 @@ def cir_ej(num_wires, circuito_func):
 # ==============
 
 
-def layer(x, num_qubits):
+def layer2(x, num_qubits):
     """
     Constructs a quantum circuit using basis embedding and a sequence of Hadamard and CNOT gates.
 
@@ -111,6 +111,28 @@ def layer(x, num_qubits):
             qml.CNOT(wires=[j, j + 1])
         else:
             qml.CNOT(wires=[j, 0])
+
+def layer(x, num_qubits, depth=2):
+    """
+    Enhanced quantum feature map for QSVM.
+
+    Args:
+        x (array-like): Input features.
+        num_qubits (int): Number of qubits.
+        depth (int): Number of layers (default 2).
+
+    Operations:
+        - AngleEmbedding with rotation="Y"
+        - RZ gates per qubit for non-linearity
+        - Circular entanglement with CNOTs, repeated by depth
+    """
+    wires = list(range(num_qubits))
+    for _ in range(depth):
+        qml.AngleEmbedding(x, wires=wires, rotation="Y")
+        for wire in wires:
+            qml.RZ(x[wire], wires=wire)
+        for j in range(num_qubits):
+            qml.CNOT(wires=[j, (j + 1) % num_qubits])
 
 
 def ansatz(x, num_qubits):
