@@ -20,12 +20,25 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import DBSCAN
 from sklearn.datasets import make_classification
 from sklearn.datasets import make_blobs
+from sklearn.preprocessing import PowerTransformer
+#Extra:
+import os
+import pandas as pd
+import os.path as osp
+import sys
+SCRIPT_DIR = osp.abspath(osp.dirname(__file__))
+sys.path.insert(0, osp.join(SCRIPT_DIR, "./"))
+import  quantum_feature_map.moduqusvm as mdqsvm
+import  quantum_feature_map.modudata as mddt
+from  quantum_feature_map.moduqusvm import svm_models
+# Obtener el directorio del script actual
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ===============================
 # 1. Read and clean Excel or CSV file
 # ===============================
 
 # Set the input file name (change as needed)
-excel_file = "peptides_transformados.xlsx"
+excel_file = "sample_s.xlsx"
 
 # Read the Excel file using pandas
 # If the file has multiple sheets, you can specify sheet_name if needed
@@ -35,12 +48,21 @@ try:
 except Exception as e:
     print(f"Error reading the Excel file: {e}")
 
-
+#Mis datos:
 # X: peptide names (from the first row, skipping the first column)
-X = df_raw.iloc[0, 1:].values
+#X = df_raw.iloc[0, 1:].values
 
 # y: features for each peptide (all rows except the first, all columns except the first)
-y = df_raw.iloc[2:, 1:].values.T  # Transpose so each row is a peptide, each column a feature
+#y = df_raw.iloc[2:, 1:].values.T  # Transpose so each row is a peptide, each column a feature
+
+######
+#Datos Alex
+
+# X: peptide names (from the first row, skipping the first column)
+X = df_raw.iloc[0, 0:].values
+
+# y: features for each peptide (all rows except the first, all columns except the first)
+y = df_raw.iloc[1:, 0:].values.T  # Transpose so each row is a peptide, each column a feature
 
 print("Peptide names (X):", X)
 print("Feature matrix (y):", y)
@@ -55,19 +77,36 @@ if y_numeric.isnull().values.any():
     print("Warning: There are NaN values after conversion. Dropping rows with NaN.")
     y_numeric = y_numeric.dropna()  # Drop rows with any NaN values
 
-# Convert back to numpy array if needed
-y_numeric = y_numeric.values
+# Normalize features using PowerTransformer
+pt = PowerTransformer()
+y_normalized = pt.fit_transform(y_numeric)
+
+# Use y_normalized for all downstream analysis (PCA, clustering, etc.)
 
 # --- PCA Analysis ---
 # y: feature matrix (each row is a peptide, each column is a feature)
 # Make sure y is numeric
 try:
-    y_numeric = y.astype(float)
+    y_normalized = y_normalized.astype(float)
 except Exception as e:
     print(f"Error converting features to float: {e}")
-    y_numeric = y
+    y_normalized = y_normalized
 
 from sklearn.decomposition import PCA
+
+# Utility to save and show figures with unique names
+def save_and_show(fig_name_prefix):
+    if not os.path.exists('figures'):
+        os.makedirs('figures')
+    # Use a counter to avoid overwriting
+    counter = 0
+    fname = f"figures/{fig_name_prefix}.png"
+    while os.path.exists(fname):
+        counter += 1
+        fname = f"figures/{fig_name_prefix}_{counter}.png"
+    plt.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.show()
+
 #Prueba# Fit PCA to the feature matrix
 def plot_pca_variance(y_matrix, max_components=10):
     pca = PCA()
@@ -83,11 +122,11 @@ def plot_pca_variance(y_matrix, max_components=10):
     plt.title("PCA cumulative explained variance")
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
+    save_and_show('pca_variance')
     return pca, y_pca
 
 # Call the function to plot PCA variance
-pca, y_pca = plot_pca_variance(y_numeric, max_components=10)
+pca, y_pca = plot_pca_variance(y_normalized, max_components=10)
 
 # --- Select number of components to explain at least 95% of the variance ---
 explained_var = np.cumsum(pca.explained_variance_ratio_)
@@ -97,7 +136,7 @@ print(f"Number of components to explain at least 95% variance: {n_components_95}
 
 # Transform the data using the selected number of components
 pca_95 = PCA(n_components=n_components_95)
-y_pca_95 = pca_95.fit_transform(y_numeric)
+y_pca_95 = pca_95.fit_transform(y_normalized)
 print(f"Shape of PCA-reduced data: {y_pca_95.shape}")
 
 # --- Show feature contributions (loadings) for each principal component ---
@@ -129,8 +168,7 @@ print(X_main_df.head())  # Show the first few rows of the PCA DataFrame
 # Pairplot: each PC vs each other, histograms on the diagonal, no hue
 sns.pairplot(X_main_df)
 plt.suptitle('Pairplot of principal components', y=1.02)
-plt.savefig('Pic.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('pairplot_pcs')
 
 # K-MEANS
 from sklearn.cluster import KMeans
@@ -160,8 +198,7 @@ plt.grid(True)
 plt.axvline(best_k, color='red', linestyle='--', label=f'Best k = {best_k}')
 plt.legend()
 plt.tight_layout()
-plt.savefig('Silhouette_KMeans.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('silhouette_kmeans')
 
 # Fit KMeans with the best number of clusters
 kmeans_main = KMeans(n_clusters=best_k, random_state=42)
@@ -188,7 +225,7 @@ dendrogram(Z)
 plt.title('Dendrogram')
 plt.xlabel('Samples')
 plt.ylabel('Euclidean distance')
-plt.show()
+save_and_show('dendrogram')
 
 # Find the optimal number of clusters from the dendrogram
 # We use the largest distance gap in the last 10 merges
@@ -245,8 +282,7 @@ axes[1].legend(title='Cluster', title_fontsize=13, fontsize=12, loc='best', fram
 
 plt.suptitle('PC1 vs PC2: KMeans vs Agglomerative Clustering', fontsize=20, weight='bold')
 plt.tight_layout(rect=[0, 0, 1, 0.97])
-plt.savefig('PC1_vs_PC2_KMeans_vs_Agglomerative.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('kmeans_vs_agglomerative')
 
 # ===============================
 # Barplot comparing silhouette scores of KMeans and Agglomerative
@@ -268,8 +304,7 @@ plt.xlabel('Clustering Model', fontsize=14)
 plt.title('Comparison of Silhouette Scores for Clustering Models', fontsize=16, weight='bold')
 plt.ylim(0, 100)
 plt.tight_layout()
-plt.savefig('Silhouette_Score_Comparison.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('silhouette_score_comparison')
 
 # ===============================
 # Improved Quantum K-Means implementation and comparison
@@ -475,8 +510,7 @@ plt.xlabel('Clustering Model')
 plt.title('Comparison of Silhouette Scores for Clustering Models')
 plt.ylim(0, 1)
 plt.tight_layout()
-plt.savefig('Silhouette_Score_Comparison_All.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('silhouette_score_comparison')
 
 # ===============================
 # Plot clusters for all methods with centroids
@@ -522,8 +556,7 @@ axes[2].grid(True, alpha=0.3)
 
 plt.suptitle('Cluster Assignments for KMeans, Agglomerative, and Quantum KMeans', fontsize=18, weight='bold', y=1.03)
 plt.tight_layout(rect=[0, 0, 1, 0.95])
-plt.savefig('Cluster_Comparison_All.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('cluster_comparison_all')
 
 # Show example quantum circuit for distance calculation
 print("\n=== Example Quantum Circuit for Distance Calculation ===")
@@ -532,8 +565,7 @@ plt.figure(figsize=(14, 8))
 circuit_drawing = example_circuit.draw(output='mpl', style='iqx', fold=20)
 plt.title('Quantum Circuit for Distance Calculation Between Two Data Points', fontsize=16, pad=20)
 plt.tight_layout()
-plt.savefig('Quantum_Distance_Circuit.png', dpi=300, bbox_inches='tight')
-plt.show()
+save_and_show('quantum_distance_circuit')
 
 print(f"\nQuantum circuit details:")
 print(f"- Number of qubits: {example_circuit.num_qubits}")
@@ -586,7 +618,7 @@ mask = np.isin(y, valid_classes)
 X_filtered = X[mask]
 y_filtered = y[mask]
 
-# Use all PCs that explain at least 95% of the variance for quantum SVM and visualization
+# Use all PCs that explain at least 95% of the variance for both SVMs
 X_train, X_test, y_train, y_test = train_test_split(
     X_filtered, y_filtered, test_size=0.3, random_state=42, stratify=y_filtered
 )
@@ -600,15 +632,15 @@ def normalize_features(X):
 X_train_norm = normalize_features(X_train)
 X_test_norm = normalize_features(X_test)
 
-# 3. Classical SVM (RBF) for all PCs
-svc_rbf = SVC(kernel='rbf', random_state=42)
-svc_rbf.fit(X_train, y_train)
-y_pred_rbf = svc_rbf.predict(X_test)
-cm_rbf = confusion_matrix(y_test, y_pred_rbf)
-disp_rbf = ConfusionMatrixDisplay(confusion_matrix=cm_rbf)
-disp_rbf.plot(cmap='Greens')
-plt.title('Confusion Matrix for Classical SVM (RBF Kernel)')
-plt.show()
+# 3. Classical SVM (RBF) on all PCs for global metrics
+svc_rbf_full = SVC(kernel='rbf', random_state=42)
+svc_rbf_full.fit(X_train, y_train)
+y_pred_rbf_full = svc_rbf_full.predict(X_test)
+cm_rbf_full = confusion_matrix(y_test, y_pred_rbf_full)
+disp_rbf_full = ConfusionMatrixDisplay(confusion_matrix=cm_rbf_full)
+disp_rbf_full.plot(cmap='Greens')
+plt.title('Confusion Matrix for Classical SVM (RBF Kernel, all PCs)')
+save_and_show('confusion_matrix_rbf')
 
 def plot_predictions(X, y_true, y_pred, title):
     """
@@ -625,12 +657,16 @@ def plot_predictions(X, y_true, y_pred, title):
     plt.title(title)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    save_and_show('decision_boundary_rbf')
 
-plot_predictions(X_test[:, :2], y_test, y_pred_rbf, 'Classical SVM (RBF): PC1 vs PC2 (Correct vs Incorrect)')
+# 4. Classical SVM (RBF) on first two PCs for visualization
+svc_rbf_2d = SVC(kernel='rbf', random_state=42)
+svc_rbf_2d.fit(X_train[:, :2], y_train)
+y_pred_rbf_2d = svc_rbf_2d.predict(X_test[:, :2])
+plot_predictions(X_test[:, :2], y_test, y_pred_rbf_2d, 'Classical SVM (RBF): PC1 vs PC2 (Correct vs Incorrect)')
 
-# 4. Quantum SVM with PennyLane (ZZFeatureMap kernel) using all PCs
-n_qubits = X_train.shape[1]
+# --- Quantum SVM with PennyLane (ZZFeatureMap kernel) using only first two PCs ---
+n_qubits = n_components_95
 shots = 1024
 
 dev = qml.device("default.qubit", wires=n_qubits, shots=shots)
@@ -640,20 +676,17 @@ def zz_kernel_circuit(x1, x2):
     # ZZFeatureMap style
     for i in range(n_qubits):
         qml.Hadamard(wires=i)
-        qml.RZ(x1[i], wires=i)
+        qml.RY(x1[i], wires=i)
     # Entanglement (ring)
     for i in range(n_qubits - 1):
+        qml.Hadamard(wires=i)
         qml.CNOT(wires=[i, i+1])
-    # Optionally add more entanglement layers here
     for i in range(n_qubits):
         qml.RZ(-x2[i], wires=i)
+    qml.CNOT(wires=[n_qubits-1, 0])
     return qml.probs(wires=range(n_qubits))
 
 def quantum_kernel(X1, X2, verbose=False):
-    """
-    Compute the quantum kernel matrix between X1 and X2 with nested progress bars.
-    Shows progress for both rows and columns, and prints percentage completed.
-    """
     kernel_matrix = np.zeros((len(X1), len(X2)))
     total = len(X1) * len(X2)
     completed = 0
@@ -669,31 +702,35 @@ def quantum_kernel(X1, X2, verbose=False):
                 print(f"Quantum kernel computation: {percent:.1f}% done")
     return kernel_matrix
 
-print('Computing quantum kernel for training...')
-K_train = quantum_kernel(X_train_norm, X_train_norm, verbose=True)
-print('Computing quantum kernel for testing...')
-K_test = quantum_kernel(X_test_norm, X_train_norm, verbose=True)
-print('pre-computed')
+# Normalize only the first two PCs for quantum SVM
+X_train_2d_norm = normalize_features(X_train[:, : n_components_95])
+X_test_2d_norm = normalize_features(X_test[:, : n_components_95])
+
+print('Computing quantum kernel for training (2D)...')
+K_train = quantum_kernel(X_train_2d_norm, X_train_2d_norm, verbose=True)
+print('Computing quantum kernel for testing (2D)...')
+K_test = quantum_kernel(X_test_2d_norm, X_train_2d_norm, verbose=True)
+
 svc_quantum = SVC(kernel='precomputed')
-print('Entra')
+print('Fitting quantum SVM (2D)...')
 svc_quantum.fit(K_train, y_train)
-print('Sal')
+print('Quantum SVM fit completed.')
 y_pred_quantum = svc_quantum.predict(K_test)
 cm_quantum = confusion_matrix(y_test, y_pred_quantum)
 disp_quantum = ConfusionMatrixDisplay(confusion_matrix=cm_quantum)
 disp_quantum.plot(cmap='Blues')
-plt.title('Confusion Matrix for Quantum SVM')
-plt.show()
+plt.title('Confusion Matrix for Quantum SVM (2D)')
+save_and_show('confusion_matrix_quantum')
 
 plot_predictions(X_test[:, :2], y_test, y_pred_quantum, 'Quantum SVM: PC1 vs PC2 (Correct vs Incorrect)')
 
-# Draw the PennyLane quantum kernel circuit for the first training sample
+# Draw the PennyLane quantum kernel circuit for the first training sample (2D)
 fig, ax = plt.subplots(figsize=(10, 6))
 drawer = qml.draw_mpl(zz_kernel_circuit, decimals=2)
-drawer(X_train_norm[0], X_train_norm[0])
-plt.title('Quantum Kernel Circuit (first training sample)')
+drawer(X_train_2d_norm[0], X_train_2d_norm[0])
+plt.title('Quantum Kernel Circuit (first training sample, 2D)')
 plt.tight_layout()
-plt.show()
+save_and_show('quantum_kernel_circuit')
 
 # Decision boundary plotting function (for 2D visualization, use first two PCs)
 
@@ -720,8 +757,149 @@ def plot_decision_boundary(model, X, y, title, is_quantum=False, X_train_kernel=
     plt.title(title)
     plt.legend(*scatter.legend_elements(), title='Class')
     plt.tight_layout()
-    plt.show()
+    save_and_show('decision_boundary_quantum')
+
+
+selected_kernel = "quantum"
+clf = svm_models[selected_kernel]["model"](n_qubits)
+print('Entra',X_train,y_train)
+clf.fit(X_train, y_train)
+print('Falla')
+accuracy = clf.score(X_test, y_test)
+print(f"Precisión: {accuracy}")
+Y_pred = clf.predict(X_test)
+conf_matrix = confusion_matrix(y_test, Y_pred)
+print("confusion matrix:")
+print(conf_matrix)
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+#mdqsvm.compare_predict_and_real(X_test, Y_pred,Y_test,X_test_pca)
+
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#This is only to visualize
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+print('Number of qubits = dimension of the data')
+print('Numero de qubits: ',X_train.shape[1])
+num_qubits = X_train.shape[1]
+# visualize quantum feature map
+import random
+def generar_numeros_aleatorios(N):
+    return [random.random() for _ in range(N)]
+x = generar_numeros_aleatorios(X_train.shape[1])
+mdqsvm.cir_ej(X_train.shape[1], lambda: mdqsvm.ansatz(x, X_train.shape[1]))
+adjoint_ansatz = qml.adjoint(mdqsvm.layer)(x, X_train.shape[1])
+mdqsvm.cir_ej(X_train.shape[1], lambda: adjoint_ansatz)
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#Finish visualization
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 
 # Plot decision boundaries (for 2D visualization, use first two PCs)
-plot_decision_boundary(svc_rbf, X_test[:, :2], y_test, 'Classical SVM (RBF) Decision Boundary')
-plot_decision_boundary(svc_quantum, X_test_norm[:, :2], y_test, 'Quantum SVM (ZZFeatureMap) Decision Boundary', is_quantum=True, X_train_kernel=X_train_norm)
+plot_decision_boundary(svc_rbf_2d, X_test[:, :2], y_test, 'Classical SVM (RBF) Decision Boundary')
+
+# Show the quantum SVM confusion matrix as a plot
+from sklearn.metrics import ConfusionMatrixDisplay
+
+disp_quantum_external = ConfusionMatrixDisplay(confusion_matrix=conf_matrix)
+disp_quantum_external.plot(cmap='Purples')
+plt.title('Confusion Matrix for External Quantum SVM')
+save_and_show('confusion_matrix_external_quantum')
+
+print('RBF CLASICO')
+# "classical" vsm
+selected_kernel = "rbf"
+clf = svm_models[selected_kernel]["model"]
+# train:
+clf.fit(X_train, y_train)
+accuracy = clf.score(X_test, y_test)
+print(f"Precisión: {accuracy}")
+Y_pred = clf.predict(X_test)
+conf_matrix = confusion_matrix(y_test,  Y_pred)
+print("confusion matrix:")
+print(conf_matrix)
+# visualize kernels
+K_train = svm_models[selected_kernel]["kernel_matrix"](X_train)
+K_sorted = mddt.sort_K(K_train,y_train)
+mddt.plot_kernel_matrix(K_sorted, title=selected_kernel)
+
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+mdqsvm.compare_predict_and_real(X_test,Y_pred, y_test,X_test_pca)
+print("Clases en Y_test:", np.unique(y_test))
+print("Clases en Y_pred:", np.unique(Y_pred))
+print('Confusion matrix PCA: ',conf_matrix)
+
+print('END RBF')
+# Draw the quantum circuit for the first training sample if available
+if hasattr(clf, 'circuit_') and clf.circuit_ is not None:
+    try:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        circuit_draw = clf.circuit_(X_train[0])
+        circuit_draw.draw('mpl')
+        plt.title('Quantum SVM Circuit (first training sample)')
+        plt.tight_layout()
+        save_and_show('quantum_svm_circuit')
+    except Exception as e:
+        print(f"Could not draw quantum circuit: {e}")
+
+X_test_2d_norm = normalize_features(X_test[:, : 2])
+X_train_2d_norm = normalize_features(X_train[:, : 2])
+
+# Plot decision boundary for the external quantum SVM (using the first two normalized PCs)
+
+def make_meshgrid(x, y, h=0.02):
+    x_min, x_max = x.min() - 1, x.max() + 1
+    y_min, y_max = y.min() - 1, y.max() + 1
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+    return xx, yy
+
+def plot_contours(ax, clf, xx, yy, **params):
+    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    out = ax.contourf(xx, yy, Z, **params)
+    return out
+
+def plot_decision_boundary(X, y, clf):
+    fig, ax = plt.subplots(figsize=(8, 6))
+    X0, X1 = X[:, 0], X[:, 1]
+    xx, yy = make_meshgrid(X0, X1)
+
+    plot_contours(ax, clf, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
+    ax.scatter(X0, X1, c=y, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
+    ax.set_xlabel('Feature 1')
+    ax.set_ylabel('Feature 2')
+    ax.set_title(f'Frontera de decisión (Kernel: {selected_kernel})')
+    save_and_show('decision_boundary_external_quantum')
+
+
+print('PCA ONLY FOR DB')
+
+#Con PCA RBF:
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+clf.fit(X_train_pca, y_train)
+plot_decision_boundary(X_test_pca, y_test, clf)
+print('Fin decision Boundary')
+
+#Con PCA CUANTICO:
+selected_kernel = "quantum"
+clf = svm_models[selected_kernel]["model"](n_qubits)
+print('Entra',X_train_pca,y_train)
+clf.fit(X_train_pca, y_train)
+print('Fin decision Boundary')
+# Asumiendo que X_test tiene 2 características (2D)
+plot_decision_boundary(X_test_pca, y_test, clf)
+print('Fin decision Boundary')
+
+
+# %%
+# visualize kernels
+K_train = svm_models[selected_kernel]["kernel_matrix"](X_train, num_qubits)
+K_sorted = mddt.sort_K(K_train, Y_train)
+mddt.plot_kernel_matrix(K_sorted, title=selected_kernel)
+
+
